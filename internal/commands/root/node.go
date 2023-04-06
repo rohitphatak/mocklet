@@ -43,7 +43,8 @@ func NodeFromProvider(ctx context.Context, name string, taint *v1.Taint, p provi
 			Labels: map[string]string{
 				"type":                   "mocklet",
 				"kubernetes.io/role":     "agent",
-				"kubernetes.io/hostname":  name,
+				"kubernetes.io/hostname": name,
+				"mock":                   "true",
 			},
 		},
 		Spec: v1.NodeSpec{
@@ -56,7 +57,6 @@ func NodeFromProvider(ctx context.Context, name string, taint *v1.Taint, p provi
 				MachineID:      mock.RandStringRunes(5),
 			},
 		},
-
 	}
 
 	p.ConfigureNode(ctx, node)

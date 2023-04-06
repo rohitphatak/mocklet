@@ -1,4 +1,3 @@
----
 mocklet:
   cpu: "1000"
   memory: "500Gi"

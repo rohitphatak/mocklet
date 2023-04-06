@@ -3,11 +3,13 @@ package mock
 import (
 	"context"
 	"fmt"
+	"github.com/virtual-kubelet/virtual-kubelet/node/api/statsv1alpha1"
 	"gopkg.in/yaml.v2"
 	"io"
 	"io/ioutil"
 	"math/rand"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +20,7 @@ import (
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	stats "k8s.io/kubernetes/pkg/kubelet/apis/stats/v1alpha1"
+	//stats "k8s.io/kubernetes/pkg/kubelet/apis/stats/v1"
 )
 
 const (
@@ -105,11 +107,25 @@ func loadConfig(providerConfig, nodeName string) (config MockConfig, err error) 
 			return config, err
 		}
 		configMap := map[string]MockConfig{}
+		fmt.Printf("Mock Config : %s", string(data))
+		fmt.Printf("NodeName : %s", nodeName)
 		err = yaml.Unmarshal(data, configMap)
 		if err != nil {
 			return config, err
 		}
+
+		configMap["mockNode"] = MockConfig{
+			CPU:    "1000",
+			Memory: "213",
+			Pods:   "300",
+		}
+
+		//yamlData, _ := yaml.Marshal(&configMap)
+		//fmt.Printf("yamldata : %s", string(yamlData))
+
+		//fmt.Printf("\nMarshalled successfully, CPU = %s", j, _ := json.Marshal(configMap); string(j))
 		if _, exist := configMap[nodeName]; exist {
+			fmt.Printf("\nNode : %s, Exists", nodeName)
 			config = configMap[nodeName]
 			if config.CPU == "" {
 				config.CPU = defaultCPUCapacity
@@ -120,18 +136,20 @@ func loadConfig(providerConfig, nodeName string) (config MockConfig, err error) 
 			if config.Pods == "" {
 				config.Pods = defaultPodCapacity
 			}
+		} else {
+			fmt.Printf("\nNot exists node : %s", nodeName)
 		}
 	} else {
+		fmt.Println("\nGetting from ENV variables")
 		config.Pods = os.Getenv("NUMBER_OF_PODS")
 		config.CPU = os.Getenv("NODE_CPU")
 		config.Memory = os.Getenv("NODE_MEMORY")
 	}
 
-
-	fmt.Printf("Using config as number of pods= %s, node cpu = %s, node memory = %s", config.Pods, config.CPU, config.Memory)
+	fmt.Printf("\nUsing config as number of pods= %s, node cpu = %s, node memory = %s", config.Pods, config.CPU, config.Memory)
 
 	if _, err = resource.ParseQuantity(config.CPU); err != nil {
-		return config, fmt.Errorf("Invalid CPU value %v", config.CPU)
+		return config, fmt.Errorf("invalid CPU value %s, %v", config.CPU, err)
 	}
 	if _, err = resource.ParseQuantity(config.Memory); err != nil {
 		return config, fmt.Errorf("Invalid memory value %v", config.Memory)
@@ -156,6 +174,9 @@ func RandStringRunes(n int) string {
 	return string(b)
 }
 
+var sub3 = os.Getenv("POD_IP_SUB_START")
+var podCounter = 1
+
 // CreatePod accepts a Pod definition and stores it in memory.
 func (p *MockProvider) CreatePod(ctx context.Context, pod *v1.Pod) error {
 	ctx, span := trace.StartSpan(ctx, "CreatePod")
@@ -171,10 +192,23 @@ func (p *MockProvider) CreatePod(ctx context.Context, pod *v1.Pod) error {
 		return err
 	}
 	now := metav1.NewTime(time.Now())
+	//random := rand.Int() % 255
+
+	if podCounter > 255 {
+		sub3Int, errConv := strconv.Atoi(sub3)
+		if errConv != nil {
+			fmt.Errorf(errConv.Error())
+		}
+		sub3Int++
+		sub3 = fmt.Sprintf("%d", sub3Int)
+		podCounter = 1
+	}
+	podIp := fmt.Sprintf("%s.%s.%d", os.Getenv("POD_IP_PREFIX"), sub3, podCounter)
+	podCounter++
 	pod.Status = v1.PodStatus{
 		Phase:     v1.PodRunning,
-		HostIP:    "1.2.3.4",
-		PodIP:     "5.6.7.8",
+		HostIP:    os.Getenv("VKUBELET_POD_IP"),
+		PodIP:     podIp,
 		StartTime: &now,
 		Conditions: []v1.PodCondition{
 			{
@@ -191,6 +225,8 @@ func (p *MockProvider) CreatePod(ctx context.Context, pod *v1.Pod) error {
 			},
 		},
 	}
+
+	pod.SelfLink = fmt.Sprintf("/api/v1/namespace/%s/pod/%s", pod.Namespace, pod.Name)
 
 	for _, container := range pod.Spec.Containers {
 		pod.Status.ContainerStatuses = append(pod.Status.ContainerStatuses, v1.ContainerStatus{
@@ -435,11 +471,11 @@ func (p *MockProvider) nodeAddresses() []v1.NodeAddress {
 	return []v1.NodeAddress{
 		{
 			Type:    "InternalIP",
-			Address:  p.internalIP,
+			Address: p.internalIP,
 		},
 		{
 			Type:    "Hostname",
-			Address:  p.nodeName,
+			Address: p.nodeName,
 		},
 	}
 }
@@ -455,19 +491,15 @@ func (p *MockProvider) nodeDaemonEndpoints() v1.NodeDaemonEndpoints {
 }
 
 // GetStatsSummary returns dummy stats for all pods known by this provider.
-func (p *MockProvider) GetStatsSummary(ctx context.Context) (*stats.Summary, error) {
-	var span trace.Span
-	ctx, span = trace.StartSpan(ctx, "GetStatsSummary") //nolint: ineffassign
-	defer span.End()
+func (p *MockProvider) GetStatsSummary(ctx context.Context) (*statsv1alpha1.Summary, error) {
+	// Create the Summary object that will later be populated with node and pod stats.
+	res := &statsv1alpha1.Summary{}
 
 	// Grab the current timestamp so we can report it as the time the stats were generated.
 	time := metav1.NewTime(time.Now())
 
-	// Create the Summary object that will later be populated with node and pod stats.
-	res := &stats.Summary{}
-
 	// Populate the Summary object with basic node stats.
-	res.Node = stats.NodeStats{
+	res.Node = statsv1alpha1.NodeStats{
 		NodeName:  p.nodeName,
 		StartTime: metav1.NewTime(p.startTime),
 	}
@@ -482,8 +514,8 @@ func (p *MockProvider) GetStatsSummary(ctx context.Context) (*stats.Summary, err
 		)
 
 		// Create a PodStats object to populate with pod stats.
-		pss := stats.PodStats{
-			PodRef: stats.PodReference{
+		pss := statsv1alpha1.PodStats{
+			PodRef: statsv1alpha1.PodReference{
 				Name:      pod.Name,
 				Namespace: pod.Namespace,
 				UID:       string(pod.UID),
@@ -502,19 +534,86 @@ func (p *MockProvider) GetStatsSummary(ctx context.Context) (*stats.Summary, err
 			dummyUsageBytes := uint64(rand.Uint32())
 			totalUsageBytes += dummyUsageBytes
 			// Append a ContainerStats object containing the dummy stats to the PodStats object.
-			pss.Containers = append(pss.Containers, stats.ContainerStats{
+			pss.Containers = append(pss.Containers, statsv1alpha1.ContainerStats{
 				Name:      container.Name,
 				StartTime: pod.CreationTimestamp,
-				CPU: &stats.CPUStats{
+				CPU: &statsv1alpha1.CPUStats{
 					Time:           time,
 					UsageNanoCores: &dummyUsageNanoCores,
 				},
-				Memory: &stats.MemoryStats{
+				Memory: &statsv1alpha1.MemoryStats{
 					Time:       time,
 					UsageBytes: &dummyUsageBytes,
 				},
 			})
+
+			// Populate the CPU and RAM stats for the pod and append the PodsStats object to the Summary object to be returned.
+			pss.CPU = &statsv1alpha1.CPUStats{
+				Time:           time,
+				UsageNanoCores: &totalUsageNanoCores,
+			}
+			pss.Memory = &statsv1alpha1.MemoryStats{
+				Time:       time,
+				UsageBytes: &totalUsageBytes,
+			}
+			res.Pods = append(res.Pods, pss)
 		}
+	}
+
+	// Return the dummy stats.
+	return res, nil
+}
+
+/*func (p *MockProvider) GetStatsSummary(ctx context.Context) (*stats.Summary, error) {
+var span trace.Span
+ctx, span = trace.StartSpan(ctx, "GetStatsSummary") //nolint: ineffassign
+defer span.End()
+
+// Grab the current timestamp so we can report it as the time the stats were generated.
+time := metav1.NewTime(time.Now())
+
+// Create the Summary object that will later be populated with node and pod stats.
+//res := &stats.Summary{}
+
+// Populate the Summary object with basic node stats.
+/*res.Node = stats.NodeStats{
+	NodeName:  p.nodeName,
+	StartTime: metav1.NewTime(p.startTime),
+}*/
+
+// Populate the Summary object with dummy stats for each pod known by this provider.
+/*for _, pod := range p.pods {
+var (
+	// totalUsageNanoCores will be populated with the sum of the values of UsageNanoCores computes across all containers in the pod.
+	totalUsageNanoCores uint64
+	// totalUsageBytes will be populated with the sum of the values of UsageBytes computed across all containers in the pod.
+	totalUsageBytes uint64
+)
+
+// Iterate over all containers in the current pod to compute dummy stats.
+for _, container := range pod.Spec.Containers {
+	// Grab a dummy value to be used as the total CPU usage.
+	// The value should fit a uint32 in order to avoid overflows later on when computing pod stats.
+	dummyUsageNanoCores := uint64(rand.Uint32())
+	totalUsageNanoCores += dummyUsageNanoCores
+	// Create a dummy value to be used as the total RAM usage.
+	// The value should fit a uint32 in order to avoid overflows later on when computing pod stats.
+	dummyUsageBytes := uint64(rand.Uint32())
+	totalUsageBytes += dummyUsageBytes
+	// Append a ContainerStats object containing the dummy stats to the PodStats object.
+	/*pss.Containers = append(pss.Containers, stats.ContainerStats{
+		Name:      container.Name,
+		StartTime: pod.CreationTimestamp,
+		CPU: &stats.CPUStats{
+			Time:           time,
+			UsageNanoCores: &dummyUsageNanoCores,
+		},
+		Memory: &stats.MemoryStats{
+			Time:       time,
+			UsageBytes: &dummyUsageBytes,
+		},
+	})*/
+/*}
 
 		// Populate the CPU and RAM stats for the pod and append the PodsStats object to the Summary object to be returned.
 		pss.CPU = &stats.CPUStats{
@@ -530,7 +629,7 @@ func (p *MockProvider) GetStatsSummary(ctx context.Context) (*stats.Summary, err
 
 	// Return the dummy stats.
 	return res, nil
-}
+}*/
 
 // NotifyPods is called to set a pod notifier callback function. This should be called before any operations are done
 // within the provider.

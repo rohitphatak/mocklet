@@ -89,13 +89,17 @@ func setupHTTPServer(ctx context.Context, p provider.Provider, cfg *apiServerCon
 
 		mux := http.NewServeMux()
 
+		var summaryHandlerFunc api.PodStatsSummaryHandlerFunc
+		if mp, ok := p.(provider.PodMetricsProvider); ok {
+			summaryHandlerFunc = mp.GetStatsSummary
+		}
+
 		podRoutes := api.PodHandlerConfig{
-			RunInContainer:        p.RunInContainer,
-			GetContainerLogs:      p.GetContainerLogs,
+			RunInContainer:   p.RunInContainer,
+			GetContainerLogs: p.GetContainerLogs,
 			//GetPodsFromKubernetes: getPodsFromKubernetes,
-			GetPods:               p.GetPods,
-			//StreamIdleTimeout:     cfg.StreamIdleTimeout,
-			//StreamCreationTimeout: cfg.StreamCreationTimeout,
+			GetPods:         p.GetPods,
+			GetStatsSummary: summaryHandlerFunc,
 		}
 
 		api.AttachPodRoutes(podRoutes, mux, true)
@@ -130,6 +134,7 @@ func setupHTTPServer(ctx context.Context, p provider.Provider, cfg *apiServerCon
 			Handler: mux,
 		}
 		go serveHTTP(ctx, s, l, "pod metrics")
+		log.G(ctx).Info(fmt.Sprintf("Started http server for %s", s.Addr))
 		closers = append(closers, s)
 	}
 

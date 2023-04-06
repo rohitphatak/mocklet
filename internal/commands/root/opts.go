@@ -31,7 +31,7 @@ const (
 	DefaultOperatingSystem      = "Linux"
 	DefaultInformerResyncPeriod = 1 * time.Minute
 	DefaultMetricsAddr          = ":8844"
-	DefaultListenPort           = 8844
+	DefaultListenPort           = 8845
 	DefaultPodSyncWorkers       = 10
 	DefaultKubeNamespace        = corev1.NamespaceAll
 	DefaultKubeClusterDomain    = "cluster.local"

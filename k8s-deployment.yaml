@@ -52,8 +52,8 @@ spec:
       serviceAccountName: mocklet
       containers:
         - name: mocklet
-          image: vineeth97/mocklet
-          imagePullPolicy: Always
+          image: mocklet
+          imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
           env:
@@ -65,3 +65,9 @@ spec:
               value: "500Gi"
             - name: NUMBER_OF_PODS
               value: "10000"
+            - name: VKUBELET_POD_IP
+              value: "10.107.52.248"
+            - name: POD_IP_PREFIX
+              value: "10.1"
+            - name: POD_IP_SUB_START
+              value: "10"
