@@ -40,7 +40,7 @@ import (
 var (
 	buildVersion = "N/A"
 	buildTime    = "N/A"
-	k8sVersion   = "v1.15.2" // This should follow the version of k8s.io/kubernetes we are importing
+	k8sVersion   = "v1.26.0" // This should follow the version of k8s.io/kubernetes we are importing
 )
 
 func main() {
@@ -57,7 +57,7 @@ func main() {
 
 	var opts root.Opts
 	optsErr := root.SetDefaultOpts(&opts)
-	opts.Version = strings.Join([]string{k8sVersion, "vk", buildVersion}, "-")
+	opts.Version = strings.Join([]string{k8sVersion, buildVersion}, "-")
 
 	s := provider.NewStore()
 	registerMock(s)

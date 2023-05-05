@@ -52,7 +52,7 @@ spec:
       serviceAccountName: mocklet
       containers:
         - name: mocklet
-          image: mocklet
+          image: rohitphatak/mock-node
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 80
